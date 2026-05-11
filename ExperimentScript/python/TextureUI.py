@@ -329,7 +329,7 @@ def process_eff_options():
     return eff
 
 def get_detector_positions(ds):
-    
+
     try:
         stth_value = sum(ds.stth)/len(ds.stth) # save for later
         all_stth = ds.stth[:] # also save for later
@@ -341,18 +341,39 @@ def get_detector_positions(ds):
 
     return all_stth
 
+def get_euler_positions(ds):
+
+    phi_locs = ("/entry1/sample/euler_phi", "/entry1/sample/phi")
+    chi_locs = ("/entry1/sample/euler_chi", "/entry1/sample/chi")
+    omega_locs = ("/entry1/sample/euler_omega", "/entry1/sample/omega")
+    
+    ret_vals = []
+    for angle in omega_locs, chi_locs, phi_locs:
+        result = None
+        for locs in angle:
+            try:
+                result = ds[locs]
+                break
+            except:
+                pass
+        if result == None:
+            print "Failed to find %s" % repr(angle)
+            result = ["None"] * len(ds)
+        append(ret_vals, result)
+
+    return ret_vals
+
 def get_frame_range(ds):
+    """
+    A single a:b restriction on frames to use
+    """
     restrict_spec = str(output_restrict.value)
     if ':' in restrict_spec:
-        first,last = map(int,restrict_spec.split(':'))
-        start_frames = last
-        current_frame_start = first
-        frame_no = first
+        current_frame_start,end_frame = map(int,restrict_spec.split(':'))
     else:
-        start_frames = len(ds)
+        end_frame = len(ds)
         current_frame_start = 0
-        frame_no = 0
-    return frame_no, start_frames, current_frame_start
+    return current_frame_start, end_frame
 
 def create_stem_template(ds, df, fn, frame_no):
     """Calculate the filename string by looking for special wildcards.
@@ -420,9 +441,20 @@ def process_straighten(cs, stth, bottom, top):
     new_ds.add_metadata('_pd_proc_info_data_reduction', info_string, append=True)
     return new_ds, new_contribs
     
-def process_vertical_sum(cs, stth_values, contribs=None):
+def process_vertical_sum(cs, stth_values, segment, contribs=None):
+    """
+    The detector is divided into three regions: top, middle, bottom. The value of
+    segment determines which of these is summed.
+    """
     from Reduction import reduction
+
+    # Work out region
+    
+    regions = {"top":(86,127), "middle":(42,85), "bottom":(0,41)}
+    bottom, top = regions[segment]
+
     # fix the axes
+
     cs.set_axes([stth_values,cs.axes[1],cs.axes[2]],anames=["Azimuthal angle",
                                                          "Vertical Pixel",
                                                          "Two theta"],
@@ -434,10 +466,11 @@ def process_vertical_sum(cs, stth_values, contribs=None):
     es.copy_cif_metadata(cs)
     print 'es axes: ' + `es.axes[0].title` + es.axes[1].title
     Plot1.set_dataset(es)
+
     
     gs = reduction.getVerticalIntegrated(es, okmap=okmap, axis=0, normalization=process_rescale_options(),
-                                         bottom = int(vig_lower_boundary.value),
-                                         top=int(vig_upper_boundary.value))
+                                         bottom = bottom,
+                                         top= top)
     return gs
     
 ''' Script Actions '''
@@ -495,6 +528,7 @@ def __run_script__(fns):
         # Get detector positions
 
         all_stth = get_detector_positions(ds)
+        all_omega, all_chi, all_phi = get_euler_positions(ds)
  
         # Prepare dataset
         
@@ -530,39 +564,25 @@ def __run_script__(fns):
         
         # restrict output set of frames
 
-        frame_no, start_frames, current_frame_start = get_frame_range(ds)
-            
-        # perform grouping of sequential input frames 
+        current_frame_start, end_frames = get_frame_range(ds)
+
+        frame_no = current_frame_start
+        
         # we accumulate the equivalent total monitor 
         # counts for requested normalisation later
 
-        while frame_no <= start_frames:
-            if (regain_apply.value and len(regain_data)==0) or len(ds) == 1 or group_val == None:   #take them all
-                frame_no = start_frames
-                target_val = ""
-            else:         # use value to work out range
-                try:
-                    target_val = ds[group_val][current_frame_start]
-                except:
-                    open_error("Unable to read value of %s for %s" % (group_val,fn))
-                    return
-                try:
-                    if df[fn][group_val][frame_no] == target_val:
-                        frame_no += 1
-                        continue
-                except:   #Assume an exception is due to too large frameno
-                    print 'Exiting frame loop due to error'
-                    # frame_no is the first frame with the wrong values
+        while frame_no <= end_frame:
 
-            # Extract the section from current_frame_start to frame_no
+            # We have a simple approach: each frame is a separate setting of
+            # chi and/or phi, so there is no need to group
             
-            cs = ds.get_section([current_frame_start,0,0],[frame_no-current_frame_start,ds.shape[1],ds.shape[2]])
+            cs = ds[frame_no]
             cs.copy_cif_metadata(ds)
-            stth_values = all_stth[current_frame_start:frame_no]
+            stth_values = all_stth[frame_no]
 
             # Extract temperature if requested
 
-            stem_template = create_stem_template(ds, df, fn, current_frame_start)
+            stem_template = create_stem_template(ds, df, fn, frame_no)
             contribs = None
             
             # Always straighten
@@ -570,29 +590,31 @@ def __run_script__(fns):
             cs, contribs = process_straighten(cs, stth_values, 1, 126)
             
             print 'Finished straightening'
-          
+
+            # Extract axis settings
+
+            
             # Vertical summation    
 
-            print 'Summing frames from %d to %d, shape %s, start 2th %f' % (current_frame_start,frame_no-1,cs.shape,stth_values[0])
-                
-            # sum the input frames
+            for region in ("bottom", "middle", "top"):
 
-            gs = process_vertical_sum(cs, stth_values, contribs = contribs)
-                
-            try:
-                send_to_plot(gs,Plot2,add=True,title="Integrated data",quantity="Counts")
-            except IndexError:  #catch error from GPlot ??
-                send_to_plot(gs,Plot2,add=False,title="Integrated data",quantity="Counts")
+                gs = process_vertical_sum(cs, stth_values, region, contribs = contribs)
 
-            # Output datasets
+                if region == "middle":
+                    try:
+                        send_to_plot(gs,Plot2,add=True,title="Integrated data",quantity="Counts")
+                    except IndexError:  #catch error from GPlot ??
+                        send_to_plot(gs,Plot2,add=False,title="Integrated data",quantity="Counts")
+
+                # Output datasets
             
-            filename_base = join(str(out_folder.value),basename(str(fn))[:-7] + stem_template)
+                filename_base = join(str(out_folder.value),basename(str(fn))[:-7] + stem_template)
 
-            output.write_cif_data(gs,filename_base)
+                output.write_cif_data(gs,filename_base)
             
-            #loop to next group of datasets
-            current_frame_start = frame_no
-            frame_no += 1
+                #loop to next group of datasets
+                current_frame_start = frame_no
+                frame_no += 1
 
             
 ''' Utility functions for plots '''
