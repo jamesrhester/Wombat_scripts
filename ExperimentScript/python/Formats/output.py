@@ -2,7 +2,7 @@
 import math,copy
 
 # Output CIF data, including metadata
-def write_cif_data(ds,filename):
+def write_cif_block(ds, sink):
     """Write the dataset in CIF format"""
     from CifFile import CifFile, CifLoopBlock
     from datetime import datetime
@@ -11,7 +11,6 @@ def write_cif_data(ds,filename):
     current_time =  datetime.now().isoformat()
     block_name = str(block_name) + str(current_time)
     metadata_store = ds.harvest_metadata("CIF")
-    alldata = CifFile()
     alldata.NewBlock(block_name,blockcontents=metadata_store)
     # Create a unique block id
     username = '?'
@@ -35,13 +34,37 @@ def write_cif_data(ds,filename):
             (("_pd_proc_2theta_corrected", "_pd_proc_intensity_net", "_pd_proc_intensity_net_esd"),),
   #          ((("%10.5f" % ds.axes[0][0],),(format_esd(ds[0],ds.var[0]),),("%15.5f" % math.sqrt(ds.var[0]),)),))
             ((angles,ints,esds),))
-                              )
+
+            )
+
+def write_cif_data(ds, filename):
+
+    from CifFile import CifFile
+
+    alldata = CifFile()
+    write_cif_block(ds, alldata)
     if not filename[-3:]=='cif':
         filename = filename+'.cif'
     fh = open(filename,"w")
     fh.write(str(alldata))
     fh.close()
 
+def write_esg_data(segment_data, filename):
+    """
+    Write data for texture software. One file should have top/middle/bottom data
+    blocks in CIF format, containing necessary metadata.
+    """
+    from CifFile import CifFile
+    alldata = CifFile()
+    for one_segment in segment_data:
+        write_cif_block(segment_data[one_segment], alldata)
+
+    if not filename[-3:]=='esg':
+        filename = filename+'.esg'
+    fh = open(filename,"w")
+    fh.write(str(alldata))
+    fh.close()
+    
 def sanitise(badstring):
     """Remove dodgy characters from username"""
     badstring = badstring.replace(' ','-')

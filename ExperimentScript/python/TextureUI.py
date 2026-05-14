@@ -594,27 +594,32 @@ def __run_script__(fns):
             # Extract axis settings
 
             
-            # Vertical summation    
+            # Vertical summation
+
+            data_parts = {}
 
             for region in ("bottom", "middle", "top"):
 
                 gs = process_vertical_sum(cs, stth_values, region, contribs = contribs)
 
+                data_parts[region] = gs
+                
                 if region == "middle":
                     try:
                         send_to_plot(gs,Plot2,add=True,title="Integrated data",quantity="Counts")
                     except IndexError:  #catch error from GPlot ??
                         send_to_plot(gs,Plot2,add=False,title="Integrated data",quantity="Counts")
 
-                # Output datasets
+            # Output datasets
             
-                filename_base = join(str(out_folder.value),basename(str(fn))[:-7] + stem_template)
+            filename_base = join(str(out_folder.value),basename(str(fn))[:-7] + stem_template)
 
-                output.write_cif_data(gs,filename_base)
+            #output.write_cif_data(gs,filename_base)
+            output.write_esg_data(data_parts, filename_base)
             
-                #loop to next group of datasets
-                current_frame_start = frame_no
-                frame_no += 1
+            #loop to next group of datasets
+            current_frame_start = frame_no
+            frame_no += 1
 
             
 ''' Utility functions for plots '''
