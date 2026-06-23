@@ -352,14 +352,15 @@ def get_euler_positions(ds):
         result = None
         for locs in angle:
             try:
-                result = ds[locs]
+                result = ds[locs][:]
                 break
             except:
                 pass
         if result == None:
             print "Failed to find %s" % repr(angle)
             result = ["None"] * len(ds)
-        append(ret_vals, result)
+        print "Have a result for %s: %s" % (locs, result)
+        ret_vals.append(result)
 
     return ret_vals
 
@@ -428,7 +429,7 @@ def process_straighten(cs, stth, bottom, top):
     else:
         print "First wire is at %f" % cs.axes[-1][0]
         wires = cs.axes[-1]
-    print "First wire at offset %f" % wires[0]
+    print "First wire at offset %f, stth angles %s" % (wires[0], `start_angles`)
     vert_size = len(cs.axes[-2]) - 1
     vert_pos = getCenters(cs.axes[-2]) - cs.axes[-2][vert_size/2]
     vert_pos.title = "Vertical offset"
@@ -455,22 +456,17 @@ def process_vertical_sum(cs, stth_values, segment, contribs=None):
 
     # fix the axes
 
-    cs.set_axes([stth_values,cs.axes[1],cs.axes[2]],anames=["Azimuthal angle",
+    cs.set_axes([stth_values,cs.axes[1],cs.axes[2]],anames=["Texture step",
                                                          "Vertical Pixel",
                                                          "Two theta"],
-                aunits=["Degrees","mm","Degrees"])
+                aunits=["None","mm","Degrees"])
 
     print 'cs axes: ' + cs.axes[0].title + ' ' + cs.axes[1].title + ' ' + cs.axes[2].title
-    print 'stth values' + `stth_values`
-    es, okmap = reduction.getStepSummed(cs, contribs = contribs, use_zeros = vig_zero.value)  # does axis correction as well
-    es.copy_cif_metadata(cs)
-    print 'es axes: ' + `es.axes[0].title` + es.axes[1].title
-    Plot1.set_dataset(es)
-
-    
-    gs = reduction.getVerticalIntegrated(es, okmap=okmap, axis=0, normalization=process_rescale_options(),
-                                         bottom = bottom,
-                                         top= top)
+    reduction.boundaries_to_mdpts(cs)
+    print 'cs axes: ' + cs.axes[0].title + cs.axes[1].title
+    Plot1.set_dataset(cs)
+    print `cs.__dict__['ms']`
+    gs = reduction.getVerticalIntegrated(cs, axis=1, bottom = bottom, top= top)
     return gs
     
 ''' Script Actions '''
@@ -564,63 +560,68 @@ def __run_script__(fns):
         
         # restrict output set of frames
 
-        current_frame_start, end_frames = get_frame_range(ds)
+        current_frame_start, end_frame = get_frame_range(ds)
 
-        frame_no = current_frame_start
+        # Now select these frames
+
+        cs = ds[current_frame_start:end_frame]
         
-        # we accumulate the equivalent total monitor 
-        # counts for requested normalisation later
-
-        while frame_no <= end_frame:
-
-            # We have a simple approach: each frame is a separate setting of
-            # chi and/or phi, so there is no need to group
+        # We have a simple approach: each frame is a separate setting of
+        # chi and/or phi, so there is no need to group
             
-            cs = ds[frame_no]
-            cs.copy_cif_metadata(ds)
-            stth_values = all_stth[frame_no]
+        cs.copy_cif_metadata(ds)
+        stth_values = all_stth[current_frame_start:end_frame]
+        all_omega = all_omega[current_frame_start:end_frame]
+        all_chi = all_chi[current_frame_start:end_frame]
+        all_phi = all_phi[current_frame_start:end_frame]
 
-            # Extract temperature if requested
+        # Extract temperature if requested
 
-            stem_template = create_stem_template(ds, df, fn, frame_no)
-            contribs = None
+        stem_template = create_stem_template(ds, df, fn, -1)
+        contribs = None
             
-            # Always straighten
+        # Always straighten
             
-            cs, contribs = process_straighten(cs, stth_values, 1, 126)
+        cs, contribs = process_straighten(cs, stth_values, 1, 126)
             
-            print 'Finished straightening'
+        print 'Finished straightening'
 
-            # Extract axis settings
+        # Vertical summation
 
+        data_parts = {}
+
+        for region in ("bottom", "middle", "top"):
+
+            gs = process_vertical_sum(cs, stth_values, region, contribs = contribs)
+
+            data_parts[region] = gs
+            print "Cs.shape %s, Gs shape: %s" % (cs.shape, gs.shape)
+            if region == "middle":
+                try:
+                    send_to_plot(gs,Plot2,add=True,title="Integrated data",quantity="Counts")
+                except IndexError:  #catch error from GPlot ??
+                    send_to_plot(gs,Plot2,add=False,title="Integrated data",quantity="Counts")
+
+        for frameno in range(current_frame_start,end_frame):
+
+            # get angles
+            this_chi = all_chi[frameno]
+            this_phi = all_phi[frameno]
+            this_om = all_omega[frameno]
             
-            # Vertical summation
-
-            data_parts = {}
-
-            for region in ("bottom", "middle", "top"):
-
-                gs = process_vertical_sum(cs, stth_values, region, contribs = contribs)
-
-                data_parts[region] = gs
-                
-                if region == "middle":
-                    try:
-                        send_to_plot(gs,Plot2,add=True,title="Integrated data",quantity="Counts")
-                    except IndexError:  #catch error from GPlot ??
-                        send_to_plot(gs,Plot2,add=False,title="Integrated data",quantity="Counts")
-
-            # Output datasets
-            
-            filename_base = join(str(out_folder.value),basename(str(fn))[:-7] + stem_template)
-
             #output.write_cif_data(gs,filename_base)
-            output.write_esg_data(data_parts, filename_base)
-            
-            #loop to next group of datasets
-            current_frame_start = frame_no
-            frame_no += 1
 
+            this_frame = (data_parts["bottom"][frameno], data_parts["middle"][frameno],
+                          data_parts["top"][frameno])
+            for i,r in enumerate(("bottom", "middle", "top"),):
+                this_frame[i].copy_cif_metadata(data_parts[r])
+            eta = (-5.25, 0.0, 5.25)
+            # Output datasets
+            filename_base = join(str(out_folder.value), basename(str(fn))[:-7] + stem_template + "_chi" + `round(this_chi)` + "_phi" + `round(this_phi)`)
+
+            print "Writing %s" % filename_base
+            output.write_esg_data(this_chi, this_phi, this_om, this_frame, eta, filename_base)
+            
             
 ''' Utility functions for plots '''
 def send_to_plot(dataset,plot,add=False,title="",add_timestamp=True,quantity=""):

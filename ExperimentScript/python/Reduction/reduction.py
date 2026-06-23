@@ -228,6 +228,15 @@ def getSummed(ds, applyStth=0.0, contribs = None, use_zeros = False):
     assert len(rs.axes[1]) == rs.shape[-1]
     return rs, ok_map
 
+def boundaries_to_mdpts(ds, axno = 2):
+
+    if len(ds.axes[axno]) == ds.shape[-1] + 1:
+        title = ds.axes[-1].title
+        units = ds.axes[-1].units
+        ds.axes[axno] = getCenters(ds.axes[axno])
+        ds.axes[axno].title = title
+        ds.axes[axno].units = units
+
 def getStepSummed(ds, contribs = None, use_zeros=False):
     """ As for `getSummed`, but additionally offsets each frame to model 2th
     movement between frames. `contribs`, if present, is non-zero for active
@@ -345,6 +354,7 @@ def get_collapsed(ds):
     
 def getVerticalIntegrated(ds, okmap=None, normalization=-1, axis=1,top=None,bottom=None):
     print 'vertical integration of', ds.title
+    print 'Summing over axis %d in shape %s' % (axis, ds.shape)
     start_dim = ds.ndim
 
     # check shape
@@ -361,15 +371,14 @@ def getVerticalIntegrated(ds, okmap=None, normalization=-1, axis=1,top=None,bott
     
     import time
     if bottom is None or bottom < 0: bottom = 0
-    if top is None or top >= ds.shape[0]: top = ds.shape[0]-1
-    working_slice = ds[bottom:top,:]
+    if top is None or top >= ds.shape[axis]: top = ds.shape[axis]-1
+    working_slice = ds.take(range(bottom,top), axis = axis)
     totals = working_slice.intg(axis=axis)
     contribs = okmap.intg(axis=axis)
     #
     # We have now reduced the scale of the problem by 100
     #
     # Normalise to the maximum number of contributors
-    print 'Axes labels:' + `ds.axes[0].title` + ' ' + `ds.axes[1].title`
     max_contribs = float(contribs.max())
     min_contribs = float(contribs.min())
     #
@@ -393,6 +402,7 @@ def getVerticalIntegrated(ds, okmap=None, normalization=-1, axis=1,top=None,bott
     new_axes = []
     for i in range(totals.ndim):
         if len(totals.axes[i]) == totals.shape[i] + 1:
+            print "Correcting axis %d from boundaries to centers"
             new_axes.append(getCenters(totals.axes[i]))
         else:
             new_axes.append(totals.axes[i])

@@ -1,17 +1,18 @@
 # A series of routines for outputting data
-import math,copy
+import math, copy
 
 # Output CIF data, including metadata
 def write_cif_block(ds, sink):
     """Write the dataset in CIF format"""
     from CifFile import CifFile, CifLoopBlock
     from datetime import datetime
+
     block_name = sanitise(ds.title[0:17])
 # Create a block name from dataset name and current time
     current_time =  datetime.now().isoformat()
     block_name = str(block_name) + str(current_time)
-    metadata_store = ds.harvest_metadata("CIF")
-    alldata.NewBlock(block_name,blockcontents=metadata_store)
+    metadata_store = copy.deepcopy(ds.harvest_metadata("CIF"))
+    sink.NewBlock(block_name,blockcontents=metadata_store)
     # Create a unique block id
     username = '?'
     try:
@@ -25,7 +26,7 @@ def write_cif_block(ds, sink):
         (("_audit_conform_dict_name", "_audit_conform_dict_version", "_audit_conform_dict_location"),),
         ((("cif_core.dic","cif_pd.dic"),("2.3.1","1.0.1"),
          ("ftp://ftp.iucr.org/pub/cifdics/cif_core_2.3.1.dic","ftp://ftp.iucr.org/pub/cifdics/cif_pd_1.0.1.dic")),))
-)   
+                              )
     import time
     angles = map(lambda a:("%.5f" % a),ds.axes[0])
     ints = map(lambda a,b:format_esd(a,b),ds,ds.var)
@@ -36,6 +37,7 @@ def write_cif_block(ds, sink):
             ((angles,ints,esds),))
 
             )
+    return block_name
 
 def write_cif_data(ds, filename):
 
@@ -49,16 +51,23 @@ def write_cif_data(ds, filename):
     fh.write(str(alldata))
     fh.close()
 
-def write_esg_data(segment_data, filename):
+def write_esg_data(chi, phi, omega, segment_data, etas, filename):
     """
     Write data for texture software. One file should have top/middle/bottom data
-    blocks in CIF format, containing necessary metadata.
+    blocks in CIF format, containing necessary metadata. `ds` is the dataset
+    containing overall metadata, `chi`, `phi`, `omega` contain the angles,
+    `segment_data` is the summed data for top/middle/bottom.
     """
     from CifFile import CifFile
     alldata = CifFile()
-    for one_segment in segment_data:
-        write_cif_block(segment_data[one_segment], alldata)
-
+    for one_segment, one_eta in zip(segment_data, etas):
+        new_bn = write_cif_block(one_segment, alldata)
+        alldata[new_bn]["_pd_meas_angle_omega"] = omega
+        alldata[new_bn]["_pd_meas_angle_chi"] = chi
+        alldata[new_bn]["_pd_meas_angle_phi"] = phi
+        alldata[new_bn]["_pd_meas_angle_eta"] = one_eta
+        print 'For %s, eta is %f' % (new_bn, alldata[new_bn]["_pd_meas_angle_eta"])
+        
     if not filename[-3:]=='esg':
         filename = filename+'.esg'
     fh = open(filename,"w")
