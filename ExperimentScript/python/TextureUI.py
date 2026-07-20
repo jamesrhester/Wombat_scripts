@@ -511,6 +511,8 @@ def __run_script__(fns):
     # the first dataset unless it has already been specified.
     
     for fn in fns:
+
+        Plot1.clear()   #otherwise we get an error
         
         # load dataset
 
@@ -597,11 +599,7 @@ def __run_script__(fns):
             data_parts[region] = gs
             print "Cs.shape %s, Gs shape: %s" % (cs.shape, gs.shape)
             if region == "middle":
-                try:
-                    send_to_plot(gs,Plot2,add=True,title="Integrated data",quantity="Counts")
-                except IndexError:  #catch error from GPlot ??
-                    send_to_plot(gs,Plot2,add=False,title="Integrated data",quantity="Counts")
-
+                send_to_plot(gs,Plot1,add=False,title="Integrated data",quantity="Counts")
         for frameno in range(current_frame_start,end_frame):
 
             # get angles

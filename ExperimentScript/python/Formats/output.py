@@ -1,5 +1,5 @@
 # A series of routines for outputting data
-import math, copy
+import math, copy, os
 
 # Output CIF data, including metadata
 def write_cif_block(ds, sink):
@@ -51,6 +51,37 @@ def write_cif_data(ds, filename):
     fh.write(str(alldata))
     fh.close()
 
+def extract_diff_pattern(one_segment, data_dict):
+    """
+    Add keys to data_dict for the diffraction pattern held in one_segment
+    """
+    angles = map(lambda a:"%.5f" % a, one_segment.axes[0])
+    ints = map(lambda a:"%.5f" % a, one_segment)
+
+    data_dict["_pd_proc_2theta_corrected"] = angles
+    data_dict["_pd_meas_intensity_total"] = ints
+    
+def write_esg_block(data_dict, sink):
+    """
+    Write an esg block. This appears to be a CIF-like file that uses
+    _pd_block_id to separate blocks. Start with a minimal layout.
+    """
+    ordering = ("_pd_meas_angle_omega",
+                "_pd_meas_angle_chi",
+                "_pd_meas_angle_phi",
+                "_pd_meas_angle_eta")
+    
+    sink.write("\n_pd_block_id %s\n" % data_dict["_pd_block_id"])
+    for dname in ordering:
+        sink.write("%s %f\n" % (dname, data_dict[dname]))
+
+    sink.write("\n")
+    sink.write("loop_\n_pd_proc_2theta_corrected\n_pd_meas_intensity_total\n")
+    for (coord, intensity) in zip(data_dict["_pd_proc_2theta_corrected"],
+                                  data_dict["_pd_meas_intensity_total"]):
+        sink.write("%s %s\n" % (coord, intensity))
+    
+    
 def write_esg_data(chi, phi, omega, segment_data, etas, filename):
     """
     Write data for texture software. One file should have top/middle/bottom data
@@ -58,20 +89,25 @@ def write_esg_data(chi, phi, omega, segment_data, etas, filename):
     containing overall metadata, `chi`, `phi`, `omega` contain the angles,
     `segment_data` is the summed data for top/middle/bottom.
     """
-    from CifFile import CifFile
-    alldata = CifFile()
-    for one_segment, one_eta in zip(segment_data, etas):
-        new_bn = write_cif_block(one_segment, alldata)
-        alldata[new_bn]["_pd_meas_angle_omega"] = omega
-        alldata[new_bn]["_pd_meas_angle_chi"] = chi
-        alldata[new_bn]["_pd_meas_angle_phi"] = phi
-        alldata[new_bn]["_pd_meas_angle_eta"] = one_eta
-        print 'For %s, eta is %f' % (new_bn, alldata[new_bn]["_pd_meas_angle_eta"])
-        
+
     if not filename[-3:]=='esg':
         filename = filename+'.esg'
     fh = open(filename,"w")
-    fh.write(str(alldata))
+
+    alldata = {}
+    blk_ct = 1
+    for one_segment, one_eta in zip(segment_data, etas):
+        extract_diff_pattern(one_segment, alldata)
+        print "one_segment axis: %s" % `one_segment.axes[0][0]`
+        alldata["_pd_meas_angle_omega"] = omega
+        alldata["_pd_meas_angle_chi"] = chi
+        alldata["_pd_meas_angle_phi"] = phi
+        alldata["_pd_meas_angle_eta"] = one_eta
+        alldata["_pd_block_id"] = os.path.basename(filename) + "|#%d" % blk_ct
+        print 'For %s, eta is %f' % (alldata["_pd_block_id"], alldata["_pd_meas_angle_eta"])
+
+        write_esg_block(alldata, fh)
+        blk_ct += 1
     fh.close()
     
 def sanitise(badstring):
