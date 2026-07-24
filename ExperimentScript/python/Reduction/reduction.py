@@ -400,13 +400,14 @@ def getVerticalIntegrated(ds, okmap=None, normalization=-1, axis=1,top=None,bott
         info_string += "The maximum intensity was then normalised to %f counts." % float(normalization)
     # check if any axis needs to be converted from boundaries to centers
     new_axes = []
-    for i in range(totals.ndim):
-        if len(totals.axes[i]) == totals.shape[i] + 1:
+    for i in range(start_dim):
+        if i == axis: continue
+        if len(ds.axes[i]) == ds.shape[i] + 1:
             print "Correcting axis %d from boundaries to centers"
-            new_axes.append(getCenters(totals.axes[i]))
+            new_axes.append(getCenters(ds.axes[i]))
         else:
-            new_axes.append(totals.axes[i])
-        print 'Axis %d: %s' % (i,totals.axes[i].title)
+            new_axes.append(ds.axes[i])
+        print 'After integration axis: %s' % (new_axes[-1].title)
     old_names = map(lambda a:a.name,totals.axes)
     old_units = map(lambda a:a.units,totals.axes)
     old_names[-1] = 'Two theta'

@@ -456,6 +456,8 @@ def process_vertical_sum(cs, stth_values, segment, contribs=None):
 
     # fix the axes
 
+    print "Stth values: " + `stth_values`
+    
     cs.set_axes([stth_values,cs.axes[1],cs.axes[2]],anames=["Texture step",
                                                          "Vertical Pixel",
                                                          "Two theta"],
@@ -587,6 +589,10 @@ def __run_script__(fns):
         cs, contribs = process_straighten(cs, stth_values, 1, 126)
             
         print 'Finished straightening'
+
+        # Apply 2th offset
+        print 'offset: ' + `stth_values[0]`
+        cs.axes[-1] += stth_values[0]
 
         # Vertical summation
 
